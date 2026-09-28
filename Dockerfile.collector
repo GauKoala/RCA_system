@@ -1,0 +1,10 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+COPY collector/requirements.txt /tmp/collector-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/collector-requirements.txt
+
+COPY collector /app/collector
+ENV PYTHONPATH=/app
+

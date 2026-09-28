@@ -1,0 +1,9 @@
+redis>=5.0
+openai>=0.28.0
+regex
+tqdm
+numpy
+pydantic>=2.0
+langchain-huggingface>=0.0.3
+pandas>=2.0.0
+pyarrow>=12.0.0

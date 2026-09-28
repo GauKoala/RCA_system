@@ -1,0 +1,115 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    command: python -m collector.collector
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DISCOVERY_LABEL=log-monitor=true
+      - LOG_TAIL=0
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: python -m logparser.LILAC.worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - LILAC_SNAPSHOT_INTERVAL_MIN=1
+      - OPENAI_API_BASE=http://host.docker.internal:11434
+      - OPENAI_API_KEY=dummy
+    depends_on:
+      - redis
+
+  llm_worker:
+    build: .
+    command: python -m logparser.LILAC.llm_worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_BASE=http://host.docker.internal:11434
+      - OPENAI_API_KEY=dummy
+    depends_on:
+      - redis
+
+  aggregator:
+    build: .
+    command: python -m aggregator.window_aggregator
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - WINDOW_SIZE_SEC=5
+      - MAX_LOGS_PER_WINDOW=5000
+      - MAX_SEQUENCE_LEN=1000
+      - DATA_DIR=/data
+    volumes:
+      - ./data:/data
+    depends_on:
+      - redis
+
+  analyzer:
+    build: .
+    command: python -m ai.analyzer
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - INVESTIGATOR_MODEL=${INVESTIGATOR_MODEL:-qwen2.5:7b}
+      - RCA_MODEL=${RCA_MODEL:-qwen2.5:7b}
+      - RESPONDER_MODEL=${RESPONDER_MODEL:-qwen2.5:7b}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - DATA_DIR=/data
+      - IFOREST_MIN_TRAIN_WINDOWS=10
+      - IFOREST_CONTAMINATION=0.05
+      - IFOREST_N_ESTIMATORS=100
+      - SEQUENCE_NGRAM_SIZE=3
+      - SEQUENCE_MIN_LEARNS=5
+    volumes:
+      - ./data:/data
+      - .:/app
+    depends_on:
+      - redis
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - default
+      - de_tai_default
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "4317"
+    networks:
+      - default
+      - de_tai_default
+
+  otelcol:
+    image: otel/opentelemetry-collector:latest
+    volumes:
+      - ./otel-collector/otelcol-config.yml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - default
+      - de_tai_default
+
+networks:
+  de_tai_default:
+    external: true
